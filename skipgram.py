@@ -13,7 +13,7 @@ tokenizer.load()
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 learning_rate = 2e-4
-num_epochs = 10
+num_epochs = 5
 batch_size = 32
 
 wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
@@ -107,11 +107,12 @@ def train_skipgram(model, dataset, num_epochs, lr=learning_rate):
     loss_out = []
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = torch.nn.NLLLoss()
+    loss_fn = torch.nn.CrossEntropyLoss()
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1} started')
         pbar = tqdm(dataset)
+        pbar.set_description(f"Epoch: {epoch + 1}, Loss: Not yet calculated")
         for item in pbar:
             total_loss, cnt = 0.0, 0
 
@@ -119,8 +120,7 @@ def train_skipgram(model, dataset, num_epochs, lr=learning_rate):
                 optimizer.zero_grad()
 
                 log_probs = model(center_word)
-                print(log_probs.shape, model(context_words).shape)
-                loss = sum(loss_fn(log_probs, cw.unsqueeze(0)) for cw in model(context_words))
+                loss = sum(loss_fn(log_probs.squeeze(0), cw) for cw in model(context_words))
 
                 loss.backward()
                 optimizer.step()
