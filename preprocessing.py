@@ -1,4 +1,7 @@
 import json
+import numpy as np
+import torch
+
 from tqdm import tqdm
 from datasets import load_dataset
 
@@ -60,6 +63,9 @@ class Tokenizer:
             self.add_word(token)
     
     def word_to_idx(self, word):
+        if word == '<unk>':
+            return self.vocab['[UNK]']
+
         if word in self.vocab:
             return self.vocab[word]
         else:
@@ -68,12 +74,10 @@ class Tokenizer:
     def idx_to_word(self, index):
         index = str(index)
         if index in self.reverse_vocab:
-            return self.reverse_vocab[index]
+            return int(self.reverse_vocab[index]) - 1
         else:
             return -1
 
     def tokenize(self, sentence):
 
-        return [self.word_to_idx(word) for word in sentence.split()]
-    
-    
+        return torch.LongTensor([self.word_to_idx(word) for word in sentence.split()])
