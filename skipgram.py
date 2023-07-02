@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from preprocessing import Tokenizer
+from tokenizer import Tokenizer
 from tqdm import tqdm
 from datasets import load_dataset
 
@@ -12,19 +12,12 @@ tokenizer.load()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-learning_rate = 2e-4
+learning_rate = 1e-3
 num_epochs = 5
 batch_size = 32
 
-wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
 
-# train_dataset = torch.load('train_dataset.pt')
-train_dataset = [tokenizer.tokenize(sentence) for sentence in tqdm(wikitext) if len(sentence.split()) > 10]
-
-torch.save(train_dataset, 'train_dataset.pt')
-# print(train_dataset[0])
-
-###
+train_dataset = torch.load('train_dataset.pt')
 
 class EmbeddingLayer(torch.nn.Module):
     def __init__(self, num_embeddings: int, embedding_dim: int):
@@ -81,63 +74,64 @@ class Skipgram(torch.nn.Module):
         return out
 
 
-train_data = []
-for sentence in tqdm(wikitext):
-    if len(sentence.split()) < 10:
-        continue
-    
-    window_size = 2
-    data = tokenizer.tokenize(sentence)
-    length = len(data)
-
-    for i in range(window_size, length - window_size):
-        center_word = torch.LongTensor([ data[i] ])
-        context_words = torch.LongTensor([ data[i + offset] for offset in range(-window_size, window_size + 1) if offset != 0 ])
-
-        train_data.append((center_word, context_words))
-torch.save(train_data, 'train_data.pt')
-
 def train_skipgram(model, dataset, num_epochs, lr=learning_rate):
-    model.to(device)
+    model.cuda()
     model.train()
 
     loss_out = []
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     loss_fn = torch.nn.CrossEntropyLoss()
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1} started')
+        step = 0
         pbar = tqdm(dataset)
-        pbar.set_description(f"Epoch: {epoch + 1}, Loss: Not yet calculated")
-        for item in pbar:
+        pbar.set_description(f"Epoch: {epoch + 1}, Loss: 0")
+        for sentence in pbar:
             total_loss, cnt = 0.0, 0
 
-            for center_word, context_words in item:
-                optimizer.zero_grad()
+            window_size = 2
+            data = tokenizer.tokenize(sentence).to(device)
+            length = len(data)
 
-                center_word, context_words = center_word.to(device), context_words.to(device)
+            if length < 10:
+                continue
+
+            for i in range(window_size, length - window_size):
+                center_word = torch.LongTensor([ data[i] ]).cuda()
+                context_words = torch.LongTensor([ data[i + offset] for offset in range(-window_size, window_size + 1) if offset != 0 ]).cuda()
 
                 log_probs = model(center_word)
-                loss = sum(loss_fn(log_probs.squeeze(0), cw) for cw in model(context_words))
+                context_words = model(context_words)
 
+                loss = sum(loss_fn(log_probs[0], cw) for cw in context_words)
                 loss.backward()
                 optimizer.step()
 
                 total_loss += loss.item()
                 cnt += 1
-            
+
             pbar.set_description(f"Epoch: {epoch + 1}, Loss: {total_loss / cnt}")
             loss_out.append(total_loss)
+        
+            step += 1
+            if step % 10000 == 0:
+                print('checkpoint for epoch {} and step {} was saved.'.format(epoch + 1, step))
+                torch.save(model.state_dict(), 'checkpoints/checkpoint_epoch{}_step{}.pt'.format(epoch + 1, step))
+
+
+        torch.save(model.state_dict(), 'model.pt')
+        print(f"checkpoint for epoch {epoch + 1} was saved.")
     
     return loss_out
 
-model = Skipgram(tokenizer.vocab_size, 512).to(device)
+model = Skipgram(tokenizer.vocab_size, 512).cuda()
 print("model parameters: {:_}".format(sum(p.numel() for p in model.parameters())))
-print("train data: {:_}", len(train_data))
-dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
+print("train data: {:_}", len(wikitext))
 
-train_skipgram(model, dataloader, num_epochs=num_epochs, lr=learning_rate)
+loss_values = train_skipgram(model, wikitext, num_epochs=num_epochs, lr=learning_rate)
 
 torch.save(model.state_dict(), 'model.pt')
+torch.save(loss_values, 'loss_values.pt')
 print('exit')
