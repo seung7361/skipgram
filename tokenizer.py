@@ -79,4 +79,7 @@ class Tokenizer:
             return -1
 
     def tokenize(self, sentence):
-        return torch.LongTensor([self.word_to_idx(word) for word in sentence.split() if self.word_to_idx(word) != 229463])
+        return torch.LongTensor([
+            self.word_to_idx(word) for word in sentence.split()
+            if self.word_to_idx(word) != 229463
+        ])

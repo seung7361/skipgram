@@ -104,12 +104,14 @@ def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW
 
         pbar = tqdm(train_dataloader)
         pbar.set_description(f"Epoch: {epoch + 1}, Loss: 0")
+        step = 0
 
         for item in pbar:
             optimizer.zero_grad()
 
+            batch = len(item)
             tokens = torch.cat(
-                [tokenizer.tokenize(item[i]) for i in range(batch_size)], dim=0
+                [tokenizer.tokenize(item[i]) for i in range(batch)], dim=0
             )
             length = tokens.shape[0]
 
@@ -129,9 +131,12 @@ def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW
                 pbar.set_description(f"Epoch: {epoch + 1}, Loss: {loss.item() / (WINDOW_SIZE * 2)}")
             
             scheduler.step()
+            step += 1
 
+            if step % 10000 == 0:
+                torch.save(model.state_dict(), f'./checkpoints/model_epoch{epoch + 1}_step{step}.pt')
 
-        torch.save(model.state_dict(), f'./checkpoints/model_epoch{epoch}.pt')
+        torch.save(model.state_dict(), f'./checkpoints/model_epoch{epoch + 1}.pt')
         print(f"checkpoint for epoch {epoch + 1} was saved.")
     
     return loss_out
