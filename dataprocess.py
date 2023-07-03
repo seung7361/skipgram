@@ -5,7 +5,7 @@ from tokenizer import Tokenizer
 from tqdm import tqdm
 from datasets import load_dataset
 
-wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
+# wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
 
 tokenizer = Tokenizer()
 tokenizer.load()

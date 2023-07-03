@@ -4,6 +4,7 @@ import torch
 from tokenizer import Tokenizer
 from tqdm import tqdm
 from datasets import load_dataset
+from transformers import get_linear_schedule_with_warmup
 
 tokenizer = Tokenizer()
 tokenizer.load()
@@ -15,9 +16,21 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 learning_rate = 1e-3
 num_epochs = 5
 batch_size = 32
+embedding_dim = 512
+WINDOW_SIZE = 2
+MAX_LENGTH = 128
 
+###
 
-train_dataset = torch.load('train_dataset.pt')
+wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
+print('preprocessing wikitext data....')
+train_dataset = []
+for sentence in tqdm(wikitext):
+    if len(sentence.strip().split()) < 12:
+        continue
+    train_dataset.append(sentence.strip())
+print('preprocessing wikitext data done!')
+train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 class EmbeddingLayer(torch.nn.Module):
     def __init__(self, num_embeddings: int, embedding_dim: int):
@@ -53,11 +66,12 @@ class LinearLayer(torch.nn.Module):
         return outputs
 
 class Skipgram(torch.nn.Module):
-    def __init__(self, num_embeddings: int, embedding_dim: int):
+    def __init__(self, embedding, linear, num_embeddings: int, embedding_dim: int):
         super().__init__()
 
-        self.embedding_layer = EmbeddingLayer(num_embeddings, embedding_dim)
-        self.linear_layer = LinearLayer(embedding_dim, num_embeddings)
+        self.embedding_layer = embedding
+        self.linear_layer = linear
+        self.softmax = torch.nn.LogSoftmax(dim=-1)
     
     def forward(self, inputs):
         # inputs: (batch_size, seq_len)
@@ -68,69 +82,66 @@ class Skipgram(torch.nn.Module):
         out = self.linear_layer(embeddings)
         # out: (batch_size, seq_len, num_embeddings) => logit values
         
-        out = torch.nn.functional.softmax(out, dim=1)
+        out = self.softmax(out)
         # out: (batch_size, seq_len, num_embeddings) => probability values
 
         return out
 
 
-def train_skipgram(model, dataset, num_epochs, lr=learning_rate):
+def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW_SIZE=WINDOW_SIZE):
     model.cuda()
     model.train()
 
     loss_out = []
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.NLLLoss()
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=lr)
+    scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
+                                                num_warmup_steps=3000, num_training_steps=25035*5)
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1} started')
-        step = 0
-        pbar = tqdm(dataset)
+
+        pbar = tqdm(train_dataloader)
         pbar.set_description(f"Epoch: {epoch + 1}, Loss: 0")
-        for sentence in pbar:
-            total_loss, cnt = 0.0, 0
 
-            window_size = 2
-            data = tokenizer.tokenize(sentence).to(device)
-            length = len(data)
+        for item in pbar:
+            optimizer.zero_grad()
 
-            if length < 10:
-                continue
+            tokens = torch.cat(
+                [tokenizer.tokenize(item[i]) for i in range(batch_size)], dim=0
+            )
+            length = tokens.shape[0]
 
-            for i in range(window_size, length - window_size):
-                center_word = torch.LongTensor([ data[i] ]).cuda()
-                context_words = torch.LongTensor([ data[i + offset] for offset in range(-window_size, window_size + 1) if offset != 0 ]).cuda()
+            center_word = model(torch.LongTensor([tokens[i] for i in range(WINDOW_SIZE, length - WINDOW_SIZE)])).cuda()
+            context_words = torch.LongTensor([
+                [ tokens[i + e] for e in range(-WINDOW_SIZE, WINDOW_SIZE + 1) if e != 0] for i in range(WINDOW_SIZE, length - WINDOW_SIZE)
+            ]).cuda()
 
-                log_probs = model(center_word)
-                context_words = model(context_words)
+            for j in range(WINDOW_SIZE * 2):
+                loss = loss_fn(center_word, context_words[:, j].contiguous())
 
-                loss = sum(loss_fn(log_probs[0], cw) for cw in context_words)
-                loss.backward()
+                loss.backward(retain_graph=True)
                 optimizer.step()
 
-                total_loss += loss.item()
-                cnt += 1
+                optimizer.zero_grad()
 
-            pbar.set_description(f"Epoch: {epoch + 1}, Loss: {total_loss / cnt}")
-            loss_out.append(total_loss)
-        
-            step += 1
-            if step % 10000 == 0:
-                print('checkpoint for epoch {} and step {} was saved.'.format(epoch + 1, step))
-                torch.save(model.state_dict(), 'checkpoints/checkpoint_epoch{}_step{}.pt'.format(epoch + 1, step))
+                pbar.set_description(f"Epoch: {epoch + 1}, Loss: {loss.item() / (WINDOW_SIZE * 2)}")
+            
+            scheduler.step()
 
 
-        torch.save(model.state_dict(), 'model.pt')
+        torch.save(model.state_dict(), f'./checkpoints/model_epoch{epoch}.pt')
         print(f"checkpoint for epoch {epoch + 1} was saved.")
     
     return loss_out
 
-model = Skipgram(tokenizer.vocab_size, 512).cuda()
+embedding = EmbeddingLayer(tokenizer.vocab_size, embedding_dim).cuda()
+linear = LinearLayer(embedding_dim, tokenizer.vocab_size)
+model = Skipgram(embedding, linear, tokenizer.vocab_size, embedding_dim).cuda()
 print("model parameters: {:_}".format(sum(p.numel() for p in model.parameters())))
-print("train data: {:_}", len(wikitext))
 
-loss_values = train_skipgram(model, wikitext, num_epochs=num_epochs, lr=learning_rate)
+loss_values = train_skipgram(model, train_dataloader, num_epochs=num_epochs, lr=learning_rate)
 
 torch.save(model.state_dict(), 'model.pt')
 torch.save(loss_values, 'loss_values.pt')
