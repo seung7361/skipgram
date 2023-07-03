@@ -78,8 +78,13 @@ class Tokenizer:
         else:
             return -1
 
-    def tokenize(self, sentence):
-        return torch.LongTensor([
+    def tokenize(self, sentence, max_length=128):
+        out = torch.LongTensor([
             self.word_to_idx(word) for word in sentence.split()
             if self.word_to_idx(word) != 229463
         ])
+
+        while len(out) < max_length:
+            out = torch.cat([out, torch.LongTensor([self.vocab['[PAD]']])])
+        
+        return out[:max_length]

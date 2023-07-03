@@ -71,7 +71,7 @@ class Skipgram(torch.nn.Module):
 
         self.embedding_layer = embedding
         self.linear_layer = linear
-        self.softmax = torch.nn.LogSoftmax(dim=-1)
+
     
     def forward(self, inputs):
         # inputs: (batch_size, seq_len)
@@ -81,14 +81,10 @@ class Skipgram(torch.nn.Module):
 
         out = self.linear_layer(embeddings)
         # out: (batch_size, seq_len, num_embeddings) => logit values
-        
-        out = self.softmax(out)
-        # out: (batch_size, seq_len, num_embeddings) => probability values
-
         return out
 
 
-def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW_SIZE=WINDOW_SIZE):
+def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW_SIZE=WINDOW_SIZE, k=10):
     model.cuda()
     model.train()
 
@@ -120,21 +116,30 @@ def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW
                 [ tokens[i + e] for e in range(-WINDOW_SIZE, WINDOW_SIZE + 1) if e != 0] for i in range(WINDOW_SIZE, length - WINDOW_SIZE)
             ]).cuda()
 
-            for j in range(WINDOW_SIZE * 2):
-                loss = loss_fn(center_word, context_words[:, j].contiguous())
+            loss = sum(
+                loss_fn(center_word, context_words[:, j].contiguous()) for j in range(WINDOW_SIZE * 2)
+            )
+            
+            # negative sampling
+            for _ in range(k):
+                neg_words = torch.LongTensor(np.random.choice(tokenizer.vocab_size, size=(length - WINDOW_SIZE * 2, WINDOW_SIZE * 2))).cuda()
+                loss += sum(
+                    loss_fn(center_word, neg_words[:, j].contiguous()) for j in range(WINDOW_SIZE * 2)
+                )
 
-                loss.backward(retain_graph=True)
-                optimizer.step()
+            loss.backward()
+            optimizer.step()
 
-                optimizer.zero_grad()
+            optimizer.zero_grad()
 
-                pbar.set_description(f"Epoch: {epoch + 1}, Loss: {loss.item() / (WINDOW_SIZE * 2)}")
+            pbar.set_description(f"Epoch: {epoch + 1}, Loss: {loss.item() / (WINDOW_SIZE * 2)}")
+            
             
             scheduler.step()
             step += 1
 
             if step % 10000 == 0:
-                torch.save(model.state_dict(), f'./checkpoints/model_epoch{epoch + 1}_step{step}.pt')
+                torch.save(model.state_dict(), f'./checkpoints/model2_epoch{epoch + 1}_step{step}.pt')
 
         torch.save(model.state_dict(), f'./checkpoints/model_epoch{epoch + 1}.pt')
         print(f"checkpoint for epoch {epoch + 1} was saved.")
