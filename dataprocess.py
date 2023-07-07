@@ -6,6 +6,7 @@ from tqdm import tqdm
 from datasets import load_dataset
 
 # wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
+tinystories = load_dataset('roneneldan/TinyStories')['train']['text']
 
 tokenizer = Tokenizer()
 tokenizer.load()
