@@ -31,15 +31,28 @@ class Tokenizer:
         if len(file['vocab']) == 0:
             print('Tokenizer is empty')
 
-            wikitext = load_dataset('wikitext', 'wikitext-103-v1')['train']['text']
+            tinystories = load_dataset('roneneldan/TinyStories')['train']['text']
 
-            for sentence in tqdm(wikitext):
+            for sentence in tqdm(tinystories):
                 for word in sentence.split():
                     word = word.lower()
-                    if word not in self.vocab:
-                        self.add_word(word)
+                    word = word.replace('\'', '').replace('\"', '').replace('?', '').replace('.', '').replace('!', '').replace(',', '').replace(':', '').replace(';', '').replace('(', '').replace(')', '').encode('ascii', 'ignore').decode().strip().replace('/', '-').split('-')
+                    
+                    if len(word) == 1:
+                        if word[0] not in self.vocab:
+                            self.add_word(word[0])
 
-            print('wikitext dataset preprocessing done successfully')
+                    else:
+                        if len(word[0]) == 1:
+                            attached_word = ''.join(word)
+                            if attached_word not in self.vocab:
+                                self.add_word(attached_word)
+                        else:
+                            for each in word:
+                                if each not in self.vocab:
+                                    self.add_word(each)
+
+            print('tinystories dataset preprocessing done successfully')
 
             file['vocab'] = self.vocab
             file['reverse_vocab'] = self.reverse_vocab
@@ -88,3 +101,6 @@ class Tokenizer:
             out = torch.cat([out, torch.LongTensor([self.vocab['[PAD]']])])
         
         return out[:max_length]
+
+tokenizer = Tokenizer()
+tokenizer.load()
