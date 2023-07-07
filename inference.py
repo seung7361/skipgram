@@ -87,17 +87,12 @@ model = Skipgram(
 
 model.load_state_dict(torch.load('./checkpoints/model_epoch5_step20000.pt'))
 
-def get_similarity(word1, word2):
-    word1 = model(torch.LongTensor([tokenizer.word_to_idx(word1)])).squeeze()
-    word2 = model(torch.LongTensor([tokenizer.word_to_idx(word2)])).squeeze()
+cat = model(torch.tensor([tokenizer.vocab['cat']]).cuda())
+dog = model(torch.tensor([tokenizer.vocab['dog']]).cuda())
 
-    dist = 0.0
+print(torch.cosine_similarity(cat, dog, dim=1))
 
-    for i in range(len(word1)):
-        dist += (word1[i] - word2[i])
+fire = model(torch.tensor([tokenizer.vocab['fire']]).cuda())
+water = model(torch.tensor([tokenizer.vocab['water']]).cuda())
 
-    return abs(dist)
-
-print(get_similarity('man', 'woman'))
-print(get_similarity('king', 'queen'))
-print(get_similarity())
+print(torch.cosine_similarity(water, cat, dim=1))
