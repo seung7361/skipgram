@@ -24,6 +24,19 @@ class Tokenizer:
             self.reverse_vocab[self.vocab_size] = word
             self.vocab_size += 1
     
+    def process_word(self, word):
+        word = word.lower()
+        word = word.replace('\'', '').replace('\"', '').replace('?', '').replace('.', '').replace('!', '').replace(',', '').replace(':', '').replace(';', '').replace('(', '').replace(')', '').encode('ascii', 'ignore').decode().strip().replace('/', '-').split('-')
+
+        if len(word[0]) == 1:
+            return [''.join(word)]
+        
+        else:
+            return word
+
+        return word
+
+    
     def load(self):
         with open('tokenizer.json', 'r') as f:
             file = json.load(f)
@@ -35,8 +48,7 @@ class Tokenizer:
 
             for sentence in tqdm(tinystories):
                 for word in sentence.split():
-                    word = word.lower()
-                    word = word.replace('\'', '').replace('\"', '').replace('?', '').replace('.', '').replace('!', '').replace(',', '').replace(':', '').replace(';', '').replace('(', '').replace(')', '').encode('ascii', 'ignore').decode().strip().replace('/', '-').split('-')
+                    word = self.process_word(word)
                     
                     if len(word) == 1:
                         if word[0] not in self.vocab:
@@ -92,15 +104,15 @@ class Tokenizer:
             return -1
 
     def tokenize(self, sentence, max_length=128):
-        out = torch.LongTensor([
-            self.word_to_idx(word) for word in sentence.split()
-            if self.word_to_idx(word) != 229463
-        ])
+        out = []
+        for words in sentence.split():
+            for word in self.process_word(words):
+                if self.word_to_idx(word) != self.vocab['[UNK]']:
+                    out.append(self.word_to_idx(word))
+        out = torch.LongTensor(out)
 
         while len(out) < max_length:
             out = torch.cat([out, torch.LongTensor([self.vocab['[PAD]']])])
         
         return out[:max_length]
 
-tokenizer = Tokenizer()
-tokenizer.load()

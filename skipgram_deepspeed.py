@@ -15,11 +15,11 @@ tokenizer.load()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-learning_rate = 3e-3
+learning_rate = 1e-3
 num_epochs = 5
 batch_size = 64
 embedding_dim = 512
-WINDOW_SIZE = 2
+WINDOW_SIZE = 3
 MAX_LENGTH = 128
 
 ###
@@ -90,20 +90,16 @@ class Skipgram(torch.nn.Module):
         # out: (batch_size, seq_len, num_embeddings) => logit values
 
         out = torch.nn.functional.log_softmax(out, dim=1)
-        
+
         return out
 
 
-def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW_SIZE=WINDOW_SIZE, k=10):
-    model.cuda()
+def train_skipgram(model, train_dataloader, num_epochs, loss_fn, optimizer, lr=learning_rate, WINDOW_SIZE=WINDOW_SIZE, k=10):
     model.train()
 
     loss_out = []
 
-    loss_fn = torch.nn.NLLLoss()
-    optimizer = torch.optim.SGD(params=model.parameters(), lr=lr)
-    scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
-                                                num_warmup_steps=3000, num_training_steps=len(train_dataloader)*5)
+    
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1} started')
@@ -113,7 +109,7 @@ def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW
         step = 0
 
         for item in pbar:
-            optimizer.zero_grad()
+            model.zero_grad()
 
             batch = len(item)
             tokens = torch.cat(
@@ -137,15 +133,10 @@ def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW
                     loss_fn(center_word, neg_words[:, j].contiguous()) for j in range(WINDOW_SIZE * 2)
                 )
 
-            loss.backward()
-            optimizer.step()
-
-            optimizer.zero_grad()
+            model.backward(loss)
+            model.step()
 
             pbar.set_description(f"Epoch: {epoch + 1}, Loss: {loss.item() / (WINDOW_SIZE * 2)}")
-            
-            
-            scheduler.step()
             step += 1
 
             if step % 10000 == 0:
@@ -161,7 +152,14 @@ linear = LinearLayer(embedding_dim, tokenizer.vocab_size)
 model = Skipgram(embedding, linear, tokenizer.vocab_size, embedding_dim).cuda()
 print("model parameters: {:_}".format(sum(p.numel() for p in model.parameters())))
 
-loss_values = train_skipgram(model, train_dataloader, num_epochs=num_epochs, lr=learning_rate)
+loss_fn = torch.nn.NLLLoss()
+optimizer = torch.optim.AdamW(params=model.parameters(), lr=learning_rate)
+scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
+                                            num_warmup_steps=3000, num_training_steps=len(train_dataloader)*5)
+model_engine, optimizer, train_dataloader, _ = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=scheduler,
+                                                    model_parameters=model.parameters(), config='ds_config.json',
+                                                    training_data=train_dataset)
+train_skipgram(model_engine, train_dataloader, num_epochs=num_epochs, loss_fn=loss_fn, optimizer=optimizer, lr=learning_rate)
 
 torch.save(model.state_dict(), 'model.pt')
 torch.save(loss_values, 'loss_values.pt')
