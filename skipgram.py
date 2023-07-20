@@ -156,9 +156,9 @@ def train_skipgram(model, train_dataloader, num_epochs, lr=learning_rate, WINDOW
     
     return loss_out
 
-embedding = EmbeddingLayer(tokenizer.vocab_size, embedding_dim).cuda()
-linear = LinearLayer(embedding_dim, tokenizer.vocab_size)
-model = Skipgram(embedding, linear, tokenizer.vocab_size, embedding_dim).cuda()
+model = EmbeddingLayer(tokenizer.vocab_size, embedding_dim).cuda()
+# linear = LinearLayer(embedding_dim, tokenizer.vocab_size)
+# model = Skipgram(embedding, linear, tokenizer.vocab_size, embedding_dim).cuda()
 print("model parameters: {:_}".format(sum(p.numel() for p in model.parameters())))
 
 loss_values = train_skipgram(model, train_dataloader, num_epochs=num_epochs, lr=learning_rate)

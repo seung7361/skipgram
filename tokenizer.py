@@ -103,7 +103,7 @@ class Tokenizer:
         else:
             return -1
 
-    def tokenize(self, sentence, max_length=128):
+    def tokenize(self, sentence, max_length=85):
         out = []
         for words in sentence.split():
             for word in self.process_word(words):

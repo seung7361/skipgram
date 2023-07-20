@@ -23,76 +23,39 @@ MAX_LENGTH = 128
 
 ###
 
-class EmbeddingLayer(torch.nn.Module):
-    def __init__(self, num_embeddings: int, embedding_dim: int):
+class Word2Vec(torch.nn.Module):
+    def __init__(self, vocab_size, embedding_dim):
         super().__init__()
 
-        # num_embeddings == vocab_size
-        # embedding_dim == depth
-        self.num_embeddings = num_embeddings
-        self.embedding_dim = embedding_dim
+        self.embeddings = torch.nn.Embedding(vocab_size, embedding_dim)
+        self.linear = torch.nn.Linear(embedding_dim, vocab_size)
 
-        self.weights = torch.nn.Parameter(torch.randn(num_embeddings, embedding_dim))
-    
     def forward(self, inputs):
-        inputs = inputs.long()
+        embeds = self.embeddings(inputs)
+        out = self.linear(embeds)
+        log_probs = torch.nn.functional.log_softmax(out, dim=1)
 
-        embeddings = self.weights[inputs]
+        return log_probs
 
-        return embeddings
+# model = Skipgram(
+#     embedding=EmbeddingLayer(num_embeddings=vocab_size, embedding_dim=embedding_dim),
+#     linear=LinearLayer(input_dim=embedding_dim, output_dim=vocab_size),
+#     num_embeddings=vocab_size,
+#     embedding_dim=embedding_dim
+# ).cuda()
 
-class LinearLayer(torch.nn.Module):
-    def __init__(self, input_dim: int, output_dim: int):
-        super().__init__()
+model = Word2Vec(vocab_size, embedding_dim).cuda()
+model.load_state_dict(torch.load('./checkpoints/model_67.pt'))
 
-        self.input_dim = input_dim
-        self.output_dim = output_dim
+cat = model.embeddings(torch.tensor([tokenizer.word_to_idx('cat')]).cuda())
+dog = model.embeddings(torch.tensor([tokenizer.word_to_idx('dog')]).cuda())
 
-        self.weights = torch.nn.Parameter(torch.randn(input_dim, output_dim))
-        self.bias = torch.nn.Parameter(torch.randn(output_dim))
-    
-    def forward(self, inputs):
-        outputs = torch.matmul(inputs, self.weights) + self.bias
+print(torch.cosine_similarity(cat, dog))
 
-        return outputs
+king = model.embeddings(torch.tensor([tokenizer.word_to_idx('king')]).cuda())
+male = model.embeddings(torch.tensor([tokenizer.word_to_idx('male')]).cuda())
+female = model.embeddings(torch.tensor([tokenizer.word_to_idx('female')]).cuda())
+queen = model.embeddings(torch.tensor([tokenizer.word_to_idx('queen')]).cuda())
 
-class Skipgram(torch.nn.Module):
-    def __init__(self, embedding, linear, num_embeddings: int, embedding_dim: int):
-        super().__init__()
-
-        self.embedding_layer = embedding
-        self.linear_layer = linear
-        self.softmax = torch.nn.LogSoftmax(dim=-1)
-    
-    def forward(self, inputs):
-        # inputs: (batch_size, seq_len)
-
-        embeddings = self.embedding_layer(inputs)
-        # embeddings: (batch_size, seq_len, embedding_dim)
-
-        out = self.linear_layer(embeddings)
-        # out: (batch_size, seq_len, num_embeddings) => logit values
-        
-        out = self.softmax(out)
-        # out: (batch_size, seq_len, num_embeddings) => probability values
-
-        return out
-
-model = Skipgram(
-    embedding=EmbeddingLayer(num_embeddings=vocab_size, embedding_dim=embedding_dim),
-    linear=LinearLayer(input_dim=embedding_dim, output_dim=vocab_size),
-    num_embeddings=vocab_size,
-    embedding_dim=embedding_dim
-).cuda()
-
-model.load_state_dict(torch.load('./checkpoints/model_epoch5_step20000.pt'))
-
-cat = model(torch.tensor([tokenizer.vocab['cat']]).cuda())
-dog = model(torch.tensor([tokenizer.vocab['dog']]).cuda())
-
-print(torch.cosine_similarity(cat, dog, dim=1))
-
-fire = model(torch.tensor([tokenizer.vocab['fire']]).cuda())
-water = model(torch.tensor([tokenizer.vocab['water']]).cuda())
-
-print(torch.cosine_similarity(water, cat, dim=1))
+queen_emb = model.linear(king - male + female)
+print(torch.cosine_similarity(queen_emb, queen))
